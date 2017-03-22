@@ -1,0 +1,727 @@
+<!DOCTYPE HTML>
+
+<html>
+<head>
+    <title>Alcohol Crash Hot Spots</title>
+    <meta charset="utf-8" />
+
+    <script src="d3.v3.min.js" type="text/JavaScript"></script>
+    <script src="colorbrewer.js" type="text/JavaScript"></script>
+    <script src="queue.js" type="text/JavaScript"></script>
+    <script src="d3.geo.projection.min.js" type="text/JavaScript"></script>
+    <script src="topojson.js" type="text/JavaScript"></script>
+  
+</head>
+
+<style>
+    .cell {
+        fill: white;
+        stroke: #969696;
+        stroke-width: 0.5px;
+    }
+    .cell:hover {
+/*        fill: red;*/
+        stroke-width: 2px;
+        stroke: #25E8F2;
+    }
+    
+    div.tooltip {
+        color: #222;
+        background-color: #fff;
+        padding: .5em;
+        text-shadow: #f5f5f5 0 1px 0;
+        border-radius: 2px;
+        opacity: 0.9;
+        position: absolute;
+    }
+
+    .buttonTitle {
+        font: 16px Georgia, sans-serif, bold;
+        fill: black
+    }
+
+    .button {
+        cursor: pointer;
+        fill: lightgray;
+    }
+
+    .buttonRect {
+        height: 25px;
+    }
+
+    .buttonText {
+        text-anchor: middle;
+        fill: black;
+    }
+
+</style>
+
+<body>
+
+<script>
+var width = 800, height = 900;
+
+var map = d3.select("body").append("svg")
+    .attr("width", width)
+    .attr("height", height)
+    .attr("class", "map");
+
+var tooltip = d3.select('body').append('div')
+    .attr('class', 'hidden tooltip')
+    .attr("id","tooltip");
+
+var projection = d3.geo.albers()
+    .center([-0.7, 44.75])
+    .rotate([89.2, 0])
+    .parallels([43, 62])
+    .scale(10000)
+    .translate([width/2, height/2]);
+
+var path = d3.geo.path()
+    .projection(projection);
+
+var totalCrashByCell,
+    crashByCell_2010,
+    crashByCell_2011,
+    crashByCell_2012,
+    crashByCell_2013,
+    crashByCell_2014,
+    crashByCell_time0,
+    crashByCell_time1,
+    crashByCell_time2,
+    crashByCell_time3,
+    crashByCell_time4,
+    crashByCell_time5;
+
+var color = d3.scale.threshold()
+            .domain([3, 10, 50, 100, 1000]) // <-A
+            .range(colorbrewer.RdPu[5]);
+            //.range(["#ffffcc","#fecc5c","#fd8d3c","#f03b20","#bd0026"])
+         
+queue()
+    .defer(d3.csv, "crash_stats_in_fishnet_3mile.csv")
+    .defer(d3.json, "fishnet_3mile.json")
+    .await(processData);
+
+var cells, title;
+
+function processData(error,crashCSV,fishnet) {
+    d3.json("fishnet_3mile.json", function (error, fishnet) {
+        d3.csv("crash_stats_in_fishnet_3mile.csv", function (error, crashCSV) {
+            //Total crash
+            var totalCrashByCellNest = d3.nest()
+                .key(function(d) { return d.Fishnet_ID; })
+                .rollup(function(g){return g.length;})
+                .entries(crashCSV);
+            //console.log(totalCrashByCellNest);
+
+            totalCrashByCell = {};
+
+            totalCrashByCellNest.forEach(function (d) {
+                totalCrashByCell[d.key] = +d.values;            
+            });
+           
+
+            //Crash by year
+            crashYearExt = d3.extent(crashCSV,function(d) {return d.ACCDYEAR;})
+            for (i=crashYearExt[0];i<=crashYearExt[1];i++) {
+                var crash_yr = crashCSV
+                    .filter(function(d) { 
+                        return d.ACCDYEAR == i;
+                    }) 
+
+                var crashByCellNest_yr = d3.nest()
+                    .key(function(d) { return d.Fishnet_ID; })
+                    .rollup(function(g){return g.length;})
+                    .entries(crash_yr);
+                
+                var crashByCell_yr = {};
+
+                crashByCellNest_yr.forEach(function (d) {
+                    crashByCell_yr[d.key] = +d.values;            
+                });
+  
+                if (i==2010) {
+                    crashByCell_2010 = crashByCell_yr;
+                } else if (i==2011) {
+                    crashByCell_2011 = crashByCell_yr;
+                } else if (i==2012) {
+                    crashByCell_2012 = crashByCell_yr;
+                } else if (i==2013) {
+                    crashByCell_2013 = crashByCell_yr;
+                } else if (i==2014) {
+                    crashByCell_2014 = crashByCell_yr;
+                }
+            }; //crash by year          
+/*            console.log(2010)
+            console.log(crashByCell_2010);
+            console.log(2011)
+            console.log(crashByCell_2011);
+            console.log(2012)
+            console.log(crashByCell_2012);
+            console.log(2013)
+            console.log(crashByCell_2013);
+            console.log(2014)
+            console.log(crashByCell_2014);*/
+
+
+            //Crash by time
+            var crashTimeBreak = [400,800,1200,1600,2000,2400];
+            for (j=0; j<=crashTimeBreak.length; j++) {
+                crash_time = crashCSV
+                    .filter(function(d) {
+                        if (j==0) { 
+                            return d.ACCDTIME < crashTimeBreak[j];
+                        } else{
+                            return d.ACCDTIME<crashTimeBreak[j] & d.ACCDTIME>=crashTimeBreak[j-1];
+                        }
+                    }) 
+
+                var crashByCellNest_time = d3.nest()
+                    .key(function(d) { return d.Fishnet_ID; })
+                    .rollup(function(g){return g.length;})
+                    .entries(crash_time);
+
+               var crashByCell_time = {};
+
+                crashByCellNest_time.forEach(function (d) {
+                    crashByCell_time[d.key] = +d.values;            
+                });
+
+                if (j==0) {
+                    crashByCell_time0 = crashByCell_time;
+                } else if (j==1) {
+                    crashByCell_time1 = crashByCell_time;
+                } else if (j==2) {
+                    crashByCell_time2 = crashByCell_time;
+                } else if (j==3) {
+                    crashByCell_time3 = crashByCell_time;
+                } else if (j==4) {
+                    crashByCell_time4 = crashByCell_time;
+                } else if (j==5) {
+                    crashByCell_time5 = crashByCell_time;
+                }
+            } // crash by time
+
+/*            console.log("time0")
+            console.log(crashByCell_time0);
+            console.log("time1")
+            console.log(crashByCell_time1);
+            console.log("time2")
+            console.log(crashByCell_time2);
+            console.log("time3")
+            console.log(crashByCell_time3);
+            console.log("time4")
+            console.log(crashByCell_time4);
+            console.log("time5")
+            console.log(crashByCell_time5);*/
+
+
+            // Draw base map\
+            cells = topojson.feature(fishnet, fishnet.objects.fishnet_3mile_w_roads_WGS84).features;
+
+            map.selectAll("path","cells")
+                .data(cells)
+                .enter()
+                .append("path")
+                .attr("class", "cell")
+                .attr("id",function(d){
+                    return "cell_"+d.properties.Id;
+                })
+                .attr("d", path) 
+                
+            title = map.append("text")
+                .attr("x", 530)
+                .attr("y",90)
+                .attr("text-anchor", "middle")  
+                .style("font-size", "18px") 
+                .style("text-decoration", "underline");
+
+            drawButtonBox();
+            drawLegend();
+
+        }) // csv
+    }) // json
+}// processData
+
+function updateMap(crashVariable){
+    d3.selectAll("path","cells")
+        .style("fill", function (d) {
+            return color(crashVariable[d.properties.Id]); 
+        })
+        .on('mouseover', function(d) {
+            var mouse = d3.mouse(map.node()).map(function(d) {
+                return parseInt(d);
+            });
+            //console.log(color(crashVariable[d.properties.Id]));
+            tooltip.classed('hidden', false)
+                .attr('style', 'left:' + (mouse[0] + 15) +
+                        'px; top:' + (mouse[1] - 35) + 'px')
+
+            if (crashVariable[d.properties.Id] > 0) {
+                tooltip.text("total crashes: "+crashVariable[d.properties.Id]);
+            } else {
+                tooltip.text("total crashes: 0");
+            }
+        })
+        .on('mouseout', function(d) {
+            tooltip.classed('hidden', true)
+                .style('opacity', '0');
+        }); 
+}// updateMap
+
+function drawButtonBox() {
+    var boxWidth = 450;
+    var boxHeight = 900;
+    
+    var buttonBox = d3.select("body")
+        .append("svg")
+        .attr("width", boxWidth)
+        .attr("height", boxHeight)
+        .attr("id", "buttonBox");
+
+    // All crashes
+    buttonBox.append("text")
+        .text("All Crashes:")
+        .attr("x", 20)
+        .attr("y", 80)
+        .attr("class","buttonTitle");
+
+    var allCrashButtons = buttonBox.append("g")
+        .attr("class","button")
+        .attr("id","allCrashButton");
+
+    allCrashButtons.append("rect")
+        .attr("class","buttonRect")
+        .attr("id","allCrashButtonRect")
+        .attr("x",20)
+        .attr("y",90)
+        .attr("width",90)
+        .attr("rx",5) 
+        .attr("ry",5);   
+      
+    allCrashButtons.append("text")
+        .attr("class","buttonText")
+        .attr("x",65)
+        .attr("y",102)
+        .attr("dominant-baseline","central")
+        .text("All Crashes");
+
+    // Crash by year
+    buttonBox.append("text")
+        .text("Crash By Year: ")
+        .attr("x", 20)
+        .attr("y", 150)
+        .attr("class","buttonTitle");
+   
+    var years = [2010,2011,2012,2013,2014];
+
+    var allYearButtons = buttonBox.append("g")
+        .selectAll("g.button")
+        .data(years)
+        .enter()
+        .append("g")
+        .attr("id",function(d,i) {return "yearButton_"+d;})
+        .attr("class","button")
+
+    allYearButtons.append("rect")
+        .attr("class","buttonRect")
+        .attr("id",function(d,i) {return "yearButtonRect_"+d;})
+        .attr("x",function(d,i) {
+            return 20+65*i;
+        })
+        .attr("y",160)
+        .attr("width",46)
+        .attr("rx",5) 
+        .attr("ry",5);
+      
+    allYearButtons.append("text")
+        .attr("class","buttonText")
+            .attr("x",function(d,i) {
+            return 43+65*i;
+        })
+        .attr("y",172)
+        .attr("dominant-baseline","central")
+        .text(function(d) {return d;});
+        
+    // Add play button for year
+    var yearPlayButton = buttonBox.append("g")
+        //.attr("class","playButton")
+        .attr("id","yearPlayButton")
+        .attr("cursor", "pointer");
+
+    yearPlayButton.append("rect")
+        .attr("x",20)
+        .attr("y",190)
+        .attr("width",46)
+        .attr("height",25)
+        .attr("fill","blue")
+        .attr("rx",5) 
+        .attr("ry",5);
+        
+    var yearPlayButtonText = yearPlayButton
+        .append("text")
+        .text("Play")
+        .attr("fill","white")
+        .attr("x",43)
+        .attr("y",207)
+        .attr("text-anchor", "middle");  
+
+
+    // Crash by time
+    buttonBox.append("text")
+        .text("Crash By Time: ")
+        .attr("x", 20)
+        .attr("y", 245)
+        .attr("class","buttonTitle");
+   
+    var times = ["0:00 - 3:59","4:00 - 7:59","8:00 - 11:59","12:00 - 15:59","16:00 - 19:59","20:00 - 23:59"];
+
+    var allTimeButtons = buttonBox.append("g")
+        .selectAll("g.button")
+        .data(times)
+        .enter()
+        .append("g")
+        .attr("id",function(d,i) {return "timeButton_"+i;})
+        .attr("class","button")
+
+    allTimeButtons.append("rect")
+        .attr("class","buttonRect")
+        .attr("id",function(d,i) {return "timeButtonRect_"+i;})
+        .attr("x",function(d,i) {
+            if (i<=2) {
+                return 20+110*i;
+            } else {
+                return 20+110*(i-3);
+            }
+        })
+        .attr("y",function(d,i) {
+            if (i<=2) {
+                return 255;
+            } else {
+                return 295;
+            }
+        })
+        .attr("width",90)
+        .attr("rx",5) 
+        .attr("ry",5)
+             
+    allTimeButtons.append("text")
+        .attr("class","buttonText")
+        .attr("x",function(d,i) {
+            if (i<=2) {
+                return 65+110*i;
+            } else {
+                return 65+110*(i-3)
+            }
+
+        })
+        .attr("y",function(d,i) {
+            if (i<=2) { 
+                return 267;
+            } else {
+                return 307;
+            }
+        })
+        .attr("dominant-baseline","central")
+        .text(function(d) {return d;}) 
+
+
+    // Add time play button
+    var timePlayButton = buttonBox.append("g")
+        //.attr("class","playButton")
+        .attr("id","timePlayButton")
+        .attr("cursor", "pointer");
+
+    timePlayButton.append("rect")
+        .attr("x",20)
+        .attr("y",325)
+        .attr("width",46)
+        .attr("height",25)
+        .attr("fill","blue")
+        .attr("rx",5) 
+        .attr("ry",5);
+        
+    var timePlayButtonText = timePlayButton.append("text")
+        .text("Play")
+        .attr("fill","white")
+        .attr("x",43)
+        .attr("y",342)
+        .attr("text-anchor", "middle"); 
+
+    d3.selectAll("g.button")
+        .on("click", function() {
+            d3.selectAll("rect.buttonRect").attr("stroke","none");
+           
+            if (d3.select(this).attr("id") == "allCrashButton") {
+                updateMap(totalCrashByCell);
+                title.text("All Alcohol Crashes Between 2010-2014");
+                d3.select("#allCrashButtonRect")
+                    .attr("stroke","#25E8F2")
+                    .attr("stroke-width",2);
+            } else if (d3.select(this).attr("id") == "yearButton_2010") {
+                updateMap(crashByCell_2010);
+                title.text("Alcohol Crashes in 2010");
+                d3.select("#yearButtonRect_2010")
+                    .attr("stroke","#25E8F2")
+                    .attr("stroke-width",2);
+            } else if (d3.select(this).attr("id") == "yearButton_2011") {
+                updateMap(crashByCell_2011);
+                title.text("Alcohol Crashes in 2011");
+                d3.select("#yearButtonRect_2011")
+                    .attr("stroke","#25E8F2")
+                    .attr("stroke-width",2);
+            } else if (d3.select(this).attr("id") == "yearButton_2012") {
+                updateMap(crashByCell_2012);
+                title.text("Alcohol Crashes in 2012");
+                d3.select("#yearButtonRect_2012")
+                    .attr("stroke","#25E8F2")
+                    .attr("stroke-width",2);
+            } else if (d3.select(this).attr("id") == "yearButton_2013") {
+                updateMap(crashByCell_2013);
+                title.text("Alcohol Crashes in 2013");
+                d3.select("#yearButtonRect_2013")
+                    .attr("stroke","#25E8F2")
+                    .attr("stroke-width",2);
+            } else if (d3.select(this).attr("id") == "yearButton_2014") {
+                updateMap(crashByCell_2014);
+                title.text("Alcohol Crashes in 2014");
+                d3.select("#yearButtonRect_2014")
+                    .attr("stroke","#25E8F2")
+                    .attr("stroke-width",2);
+            } else if (d3.select(this).attr("id") == "timeButton_0") {
+                updateMap(crashByCell_time0);
+                title.text("Alcohol Crashes Between 0:00 - 3:59 (2010-2014)");
+                d3.select("#timeButtonRect_0")
+                    .attr("stroke","#25E8F2")
+                    .attr("stroke-width",2);
+            } else if (d3.select(this).attr("id") == "timeButton_1") {
+                updateMap(crashByCell_time1);
+                title.text("Alcohol Crashes Between 4:00 - 7:59 (2010-2014)");
+                d3.select("#timeButtonRect_1")
+                    .attr("stroke","#25E8F2")
+                    .attr("stroke-width",2);
+            } else if (d3.select(this).attr("id") == "timeButton_2") {
+                updateMap(crashByCell_time2);
+                title.text("Alcohol Crashes Between 8:00 - 11:59 (2010-2014)");
+                d3.select("#timeButtonRect_2")
+                    .attr("stroke","#25E8F2")
+                    .attr("stroke-width",2);
+            } else if (d3.select(this).attr("id") == "timeButton_3") {
+                updateMap(crashByCell_time3);
+                title.text("Alcohol Crashes Between 12:00 - 15:59 (2010-2014)");
+                d3.select("#timeButtonRect_3")
+                    .attr("stroke","#25E8F2")
+                    .attr("stroke-width",2);
+            } else if (d3.select(this).attr("id") == "timeButton_4") {
+                updateMap(crashByCell_time4);
+                title.text("Alcohol Crashes Between 16:00 - 19:59 (2010-2014)");
+                d3.select("#timeButtonRect_4")
+                    .attr("stroke","#25E8F2")
+                    .attr("stroke-width",2);
+            } else if (d3.select(this).attr("id") == "timeButton_5") {
+                updateMap(crashByCell_time5);
+                title.text("Alcohol Crashes Between 20:00 - 23:59 (2010-2014)");
+                d3.select("#timeButtonRect_5")
+                    .attr("stroke","#25E8F2")
+                    .attr("stroke-width",2);
+            }
+        }); // end of button click function
+        
+    var running_year = false;
+    var timer_year;
+    
+    var crashVariablList_year = [crashByCell_2010,crashByCell_2011,crashByCell_2012,
+                            crashByCell_2013,crashByCell_2014]
+    d3.select("#yearPlayButton")
+        .on("click", function() {
+            var i=0;
+            if (running_year == true) {
+                yearPlayButtonText.text("Play");
+                running_year = false;
+                clearInterval(timer_year);
+            } else if (running_year == false) {       
+                yearPlayButtonText.text("Pause");
+               
+                var currentCrashVariable = crashVariablList_year[i];
+                updateMap(currentCrashVariable);
+                d3.selectAll("rect.buttonRect").attr("stroke","none");
+                if (currentCrashVariable == crashByCell_2010){
+                    title.text("Alcohol Crashes in 2010");
+                    d3.select("#yearButtonRect_2010")
+                        .attr("stroke","#25E8F2")
+                        .attr("stroke-width",2);
+                };
+
+                //update the tooltip
+/*                var currentCellID =  d3.select()
+                    .on('mouseover', function(d) {d3.select(this).attr("id");})
+                console.log(currentCellID);*/
+/*                d3.select("#tooltip")
+                    .text("total crashes: "+currentCrashVariable[currentCellID]);*/
+
+                //////
+                timer_year = setInterval( function(){
+                   if (i < crashVariablList_year.length){
+                        i++;
+                        currentCrashVariable = crashVariablList_year[i];
+                        //console.log(i);
+                    } else {
+                        i = 0;
+                        currentCrashVariable = crashVariablList_year[i];
+                    }
+                    updateMap(currentCrashVariable);
+                    d3.selectAll("rect.buttonRect").attr("stroke","none");
+                    if (currentCrashVariable == crashByCell_2010){
+                        title.text("Alcohol Crashes in 2010");
+                        d3.select("#yearButtonRect_2010")
+                            .attr("stroke","#25E8F2")
+                            .attr("stroke-width",2);
+                    } else if (currentCrashVariable == crashByCell_2011){
+                        title.text("Alcohol Crashes in 2011");
+                        d3.select("#yearButtonRect_2011")
+                            .attr("stroke","#25E8F2")
+                            .attr("stroke-width",2);
+                    } else if (currentCrashVariable == crashByCell_2012){
+                        title.text("Alcohol Crashes in 2012");
+                        d3.select("#yearButtonRect_2012")
+                            .attr("stroke","#25E8F2")
+                            .attr("stroke-width",2);
+                    } else if (currentCrashVariable == crashByCell_2013){
+                        title.text("Alcohol Crashes in 2013");
+                        d3.select("#yearButtonRect_2013")
+                            .attr("stroke","#25E8F2")
+                            .attr("stroke-width",2);
+                    } else if (currentCrashVariable == crashByCell_2014){
+                        title.text("Alcohol Crashes in 2014");
+                        d3.select("#yearButtonRect_2014")
+                            .attr("stroke","#25E8F2")
+                            .attr("stroke-width",2);
+                    }              
+                }, 2000);
+                running_year = true;
+            } // if statement
+            
+        }); // click function for yearPlayButton
+
+    var running_time = false;
+    var timer_time;
+    var crashVariablList_time = [crashByCell_time0,crashByCell_time1,crashByCell_time2,
+                                crashByCell_time3,crashByCell_time4,crashByCell_time5]
+    d3.select("#timePlayButton")
+        .on("click", function() {
+            var j=0;
+            if (running_time == true) {
+                timePlayButtonText.text("Play");
+                running_time = false;
+                clearInterval(timer_time);
+            } else if (running_time == false) {       
+                timePlayButtonText.text("Pause");
+               
+                var currentCrashVariable = crashVariablList_time[j];
+                updateMap(currentCrashVariable);
+                d3.selectAll("rect.buttonRect").attr("stroke","none");
+                if (currentCrashVariable == crashByCell_time0){
+                    title.text("Alcohol Crashes Between 0:00 - 3:59 (2010-2014)");
+                    d3.select("#timeButtonRect_0")  
+                        .attr("stroke","#25E8F2")
+                        .attr("stroke-width",2);
+                };
+
+                timer_time = setInterval(function(){
+                   if (j < crashVariablList_time.length){
+                        j++;
+                        currentCrashVariable = crashVariablList_time[j];
+                        //console.log(j);
+                    } else {
+                        j = 0;
+                        currentCrashVariable = crashVariablList_time[j];
+                    }
+                    updateMap(currentCrashVariable);
+                    d3.selectAll("rect.buttonRect").attr("stroke","none");
+                    if (currentCrashVariable == crashByCell_time0){
+                        title.text("Alcohol Crashes Between 0:00 - 3:59 (2010-2014)");
+                        d3.select("#timeButtonRect_0")  
+                            .attr("stroke","#25E8F2")
+                            .attr("stroke-width",2);
+                    } else if (currentCrashVariable == crashByCell_time1){
+                        title.text("Alcohol Crashes Between 4:00 - 7:59 (2010-2014)");
+                        d3.select("#timeButtonRect_1")  
+                            .attr("stroke","#25E8F2")
+                            .attr("stroke-width",2);
+                    } else if (currentCrashVariable == crashByCell_time2){
+                        title.text("Alcohol Crashes Between 8:00 - 11:59 (2010-2014)");
+                        d3.select("#timeButtonRect_2")  
+                            .attr("stroke","#25E8F2")
+                            .attr("stroke-width",2);
+                    } else if (currentCrashVariable == crashByCell_time3){
+                        title.text("Alcohol Crashes Between 12:00 - 15:59 (2010-2014)");
+                        d3.select("#timeButtonRect_3")  
+                            .attr("stroke","#25E8F2")
+                            .attr("stroke-width",2);
+                    } else if (currentCrashVariable == crashByCell_time4){
+                        title.text("Alcohol Crashes Between 16:00 - 19:59 (2010-2014)");
+                        d3.select("#timeButtonRect_4")  
+                            .attr("stroke","#25E8F2")
+                            .attr("stroke-width",2);
+                    } else if (currentCrashVariable == crashByCell_time5){
+                        title.text("Alcohol Crashes Between 20:00 - 23:59 (2010-2014)");
+                        d3.select("#timeButtonRect_5")  
+                            .attr("stroke","#25E8F2")
+                            .attr("stroke-width",2);
+                    }             
+                }, 2000);
+                running_time = true;
+            } // if statement
+            
+        }); // click function for timePlayButton
+
+} // drawButtonBox
+
+//console.log(colorbrewer.RdPu[5][1].substring(1));
+function drawLegend() {
+    var color_domain = [3, 10, 50, 100, 1000];
+    var legend_labels = ["1-2", "3-9", "10-49", "50-99", ">= 100"]; 
+    
+    var legend = map
+        .selectAll(".legend")
+        .data(color_domain)
+        .enter()
+        .append("g")
+        .attr("class", "legend");
+
+    var ls_w = 20, ls_h = 20;
+
+    legend.append("rect")
+        .attr("x", 30)
+        .attr("y", function(d, i){ return height - (i*ls_h) - 2*ls_h;})
+        .attr("width", ls_w)
+        .attr("height", ls_h)
+        .style("stroke", "#969696")
+        .style("fill", color);
+
+    legend.append("text")
+        .attr("x", 60)
+        .attr("y", function(d, i){ return height - (i*ls_h) - ls_h - 4;})
+        .text(function(d, i){ return legend_labels[i]; });
+
+    legend.append("rect")
+        .attr("x", 30)
+        .attr("y",height - ls_h)
+        .attr("width", ls_w)
+        .attr("height", ls_h)
+        .style("stroke", "#969696")
+        .style("fill", "white");
+
+    legend.append("text")
+        .attr("x", 60)
+        .attr("y", height - 4)
+        .text("0");
+};//end of drawLegend
+
+
+</script>
+
+</body>
+
+</html>
